@@ -378,29 +378,54 @@ def _run_delivery(source_dir, output, preset, use_project_config,
                     base_dir_arg = []
                     if base_dir:
                         base_dir_arg = ['--base-dir', base_dir]
+                    client_arg = ['-c', client] if client else []
+                    session_arg = ['-s', session] if session else []
                     result = runner.invoke(
                         pack_cmd,
                         [str(src), '-o', str(dst), '-n', pack_name,
-                         '--split-by-orientation'] + base_dir_arg
+                         '--split-by-orientation'] + base_dir_arg + client_arg + session_arg
                     )
                     if result.exit_code != 0:
                         raise RuntimeError(result.output)
                     click.echo(result.output)
                 zip_files = []
+                photo_count = 0
+                thumb_count = 0
+                checksum_path = None
+                manifest_path = None
                 if dst.exists():
                     for zf in sorted(dst.glob('*.zip')):
                         size_mb = zf.stat().st_size / (1024 * 1024)
+                        is_thumbs = 'thumb' in zf.name.lower()
                         zip_files.append({
                             'name': zf.name,
                             'path': str(zf),
                             'size_bytes': zf.stat().st_size,
-                            'size_mb': round(size_mb, 2)
+                            'size_mb': round(size_mb, 2),
+                            'is_thumbs': is_thumbs
                         })
+                    for cs in sorted(dst.glob('*_checksums.md5')):
+                        checksum_path = str(cs)
+                    for mf in sorted(dst.glob('*_manifest.json')):
+                        manifest_path = str(mf)
+                        try:
+                            with open(mf, 'r', encoding='utf-8') as f:
+                                import json
+                                manifest_data = json.load(f)
+                                photo_count = manifest_data.get('summary', {}).get('total_photos', 0)
+                                thumb_count = manifest_data.get('summary', {}).get('total_thumbs', 0)
+                        except Exception:
+                            pass
                 state = mark_step_completed(state, step, {
                     'src': str(src), 'dst': str(dst),
                     'zip_files': zip_files,
+                    'file_count': len(zip_files),
+                    'photo_count': photo_count,
+                    'thumb_count': thumb_count,
                     'pack_name': pack_name,
-                    'split_by_orientation': True
+                    'split_by_orientation': True,
+                    'checksum_path': checksum_path,
+                    'manifest_path': manifest_path
                 })
 
             elif step == 'report':
