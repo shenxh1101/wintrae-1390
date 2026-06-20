@@ -1,4 +1,5 @@
 import click
+import json
 from pathlib import Path
 
 from photo_organizer.core.exif_utils import get_capture_date
@@ -23,10 +24,15 @@ from photo_organizer.core.config import resolve_preset
 @click.option('--recursive/--no-recursive', default=False,
               help='是否递归扫描子目录 (默认: 否)')
 @click.option('--preset', '-p', default=None, help='使用预设配置名')
+@click.option('--save-mapping/--no-save-mapping', default=True,
+              help='是否保存原名到新名的映射文件 (默认: 是)')
+@click.option('--mapping-file', default=None,
+              help='映射文件输出路径 (默认: 输出目录/.rename_mapping.json)')
 @click.option('--dry-run', is_flag=True,
               help='试运行，不实际重命名')
 def rename_cmd(source_dir, output, client, session, start_num, template,
-               sort_by, keep_original, recursive, preset, dry_run):
+               sort_by, keep_original, recursive, preset, save_mapping,
+               mapping_file, dry_run):
     """依据客户名、场次、序号批量重命名照片"""
     resolved = resolve_preset(
         preset,
@@ -68,6 +74,7 @@ def rename_cmd(source_dir, output, client, session, start_num, template,
 
     renamed_count = 0
     skipped_count = 0
+    rename_mapping = {}
 
     with click.progressbar(enumerate(image_files, start=start_num),
                            length=len(image_files),
@@ -93,11 +100,37 @@ def rename_cmd(source_dir, output, client, session, start_num, template,
                         continue
                     copy_file(filepath, dest_path, keep_original=keep_original)
 
+                try:
+                    rel_path = filepath.relative_to(source_dir)
+                except ValueError:
+                    rel_path = Path(filepath.name)
+                rename_mapping[str(rel_path)] = new_filename
+                rename_mapping[filepath.name] = new_filename
+                rename_mapping[filepath.stem] = new_filename
+
                 renamed_count += 1
 
             except Exception as e:
                 click.echo(f'\n处理 {filepath.name} 时出错: {e}')
                 skipped_count += 1
+
+    if save_mapping and rename_mapping and not dry_run:
+        if mapping_file:
+            map_path = Path(mapping_file)
+        else:
+            map_path = output / '.rename_mapping.json'
+        ensure_directory(map_path.parent)
+        map_data = {
+            'source_dir': str(source_dir),
+            'output_dir': str(output),
+            'client': client,
+            'session': str(session),
+            'template': template,
+            'mapping': rename_mapping,
+        }
+        with open(map_path, 'w', encoding='utf-8') as f:
+            json.dump(map_data, f, ensure_ascii=False, indent=2)
+        click.echo(f'  映射文件: {map_path}')
 
     click.echo(f'\n重命名完成:')
     click.echo(f'  成功: {renamed_count} 张')

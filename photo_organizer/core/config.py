@@ -72,29 +72,38 @@ def save_project_config(config, project_dir=None):
     return config_path
 
 
-def resolve_preset(preset_name, cli_kwargs, internal_defaults=None):
-    """按优先级解析配置: CLI 显式传值 > preset > 内部默认值
+def resolve_preset(preset_name, cli_kwargs, internal_defaults=None, project_dir=None):
+    """按优先级解析配置: CLI 显式传值 > 项目配置 > preset > 内部默认值
 
     cli_kwargs 中值为 None 的参数表示用户未显式传入，
-    会被 preset 中对应的值覆盖；preset 中也没有的再用 internal_defaults。
+    会按优先级尝试填充。
 
     Args:
         preset_name: preset 名称，为 None/空则跳过
         cli_kwargs: 命令行传入的参数字典，未设置的应为 None
         internal_defaults: 内部默认值字典
+        project_dir: 查找项目配置的目录（默认当前工作目录）
 
     Returns:
         解析后的参数字典
     """
     result = dict(cli_kwargs)
+    project_cfg = load_project_config(project_dir) if project_dir != '__disabled__' else {}
     preset_cfg = get_preset(preset_name) if preset_name else {}
     defaults = internal_defaults or {}
 
     for key, value in result.items():
         if value is None:
-            if key in preset_cfg:
+            if key in project_cfg:
+                result[key] = project_cfg[key]
+            elif key in preset_cfg:
                 result[key] = preset_cfg[key]
             elif key in defaults:
                 result[key] = defaults[key]
 
     return result
+
+
+def get_active_project_config(project_dir=None):
+    """获取项目级配置（photo_project.json），不存在返回空 dict"""
+    return load_project_config(project_dir)

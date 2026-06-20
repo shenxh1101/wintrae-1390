@@ -1,4 +1,5 @@
 import re
+import json
 import click
 from pathlib import Path
 from datetime import datetime
@@ -37,13 +38,70 @@ def find_missing_sequences(file_list, start_num=1):
 
 
 def generate_report_text(stats, missing_seqs, duplicates, file_list, output_file=None,
-                         skipped_files=None, seq_width=4):
+                         skipped_files=None, seq_width=4, step_summary=None):
     lines = []
     lines.append('=' * 60)
     lines.append('照片整理报告')
     lines.append('=' * 60)
     lines.append(f'生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}')
     lines.append('')
+
+    if step_summary:
+        step_names = {
+            'import': '第1步: 导入照片',
+            'rename': '第2步: 批量重命名',
+            'select': '第3步: 筛选精修图',
+            'watermark': '第4步: 加水印/缩略图/横竖分类',
+            'pack': '第5步: 打包交付',
+            'report': '第6步: 生成整理报告',
+        }
+        lines.append('【交付流程摘要】')
+        for step_key in ['import', 'rename', 'select', 'watermark', 'pack', 'report']:
+            step_data = step_summary.get(step_key)
+            if not step_data:
+                continue
+            status = step_data.get('status', 'unknown')
+            info = step_data.get('info', {})
+            label = step_names.get(step_key, step_key)
+            status_icon = '[OK]' if status == 'completed' else ('[FAIL]' if status == 'failed' else '[--]')
+            lines.append(f'  {status_icon} {label}')
+            if info.get('src'):
+                lines.append(f'    输入: {info["src"]}')
+            if info.get('dst'):
+                lines.append(f'    输出: {info["dst"]}')
+            if info.get('scan_dir'):
+                lines.append(f'    扫描: {info["scan_dir"]}')
+            if info.get('report_file'):
+                lines.append(f'    报告: {info["report_file"]}')
+            if step_key == 'import' and info.get('file_count') is not None:
+                lines.append(f'    导入 {info["file_count"]} 张照片 (分组: {info.get("group_by", "N/A")})')
+            if step_key == 'rename' and info.get('file_count') is not None:
+                lines.append(f'    重命名 {info["file_count"]} 张 (客户: {info.get("client", "N/A")}, 场次: {info.get("session", "N/A")})')
+            if step_key == 'select' and info.get('file_count') is not None:
+                lines.append(f'    筛选出 {info["file_count"]} 张精修图')
+            if step_key == 'watermark':
+                parts = []
+                if info.get('processed_count'):
+                    parts.append(f'加水印 {info["processed_count"]} 张')
+                if info.get('landscape_count'):
+                    parts.append(f'横图 {info["landscape_count"]}')
+                if info.get('portrait_count'):
+                    parts.append(f'竖图 {info["portrait_count"]}')
+                if info.get('square_count'):
+                    parts.append(f'方图 {info["square_count"]}')
+                if info.get('raw_count'):
+                    parts.append(f'RAW 原片 {info["raw_count"]} 张')
+                if info.get('skipped_count'):
+                    parts.append(f'跳过 {info["skipped_count"]} 个')
+                if parts:
+                    lines.append('    ' + ', '.join(parts))
+            if step_key == 'pack' and info.get('zip_files'):
+                lines.append(f'    生成 {len(info["zip_files"])} 个压缩包:')
+                for zf in info['zip_files']:
+                    lines.append(f'      - {zf.get("name", "N/A")} ({zf.get("size_mb", "N/A")} MB)')
+            if step_data.get('error'):
+                lines.append(f'    错误: {step_data["error"]}')
+        lines.append('')
 
     lines.append('【照片数量统计】')
     lines.append(f'  总照片数: {stats["total"]} 张')
@@ -129,9 +187,11 @@ def generate_report_text(stats, missing_seqs, duplicates, file_list, output_file
 @click.option('--skipped-files', 'skipped_files_opt', multiple=True,
               type=(click.Path(), str),
               help='跳过的文件列表 (用于报告记录)，格式: --skipped-files FILEPATH REASON')
+@click.option('--step-summary', default=None,
+              help='交付流程步骤摘要 (JSON 字符串，用于在报告中展示流程详情)')
 def report_cmd(source_dir, output, start_num, check_duplicates, check_sequence,
                delivery_list, recursive, report_format, group_by_date, group_by_camera,
-               preset, skipped_files_opt):
+               preset, skipped_files_opt, step_summary):
     """输出照片数量、缺失编号、重复文件和交付清单"""
     resolved = resolve_preset(
         preset,
@@ -142,6 +202,13 @@ def report_cmd(source_dir, output, start_num, check_duplicates, check_sequence,
     start_num = resolved['start_num']
 
     source_dir = Path(source_dir)
+
+    step_summary_data = None
+    if step_summary:
+        try:
+            step_summary_data = json.loads(step_summary)
+        except Exception:
+            step_summary_data = None
 
     click.echo(f'扫描目录: {source_dir}')
     image_files = list_image_files(source_dir, recursive=recursive)
@@ -208,7 +275,8 @@ def report_cmd(source_dir, output, start_num, check_duplicates, check_sequence,
     if report_format == 'text':
         report_text = generate_report_text(
             stats, missing_seqs, duplicates, image_files, output,
-            skipped_files=skipped_files, seq_width=seq_width
+            skipped_files=skipped_files, seq_width=seq_width,
+            step_summary=step_summary_data
         )
         if not output:
             click.echo('')

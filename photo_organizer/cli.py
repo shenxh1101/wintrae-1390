@@ -9,6 +9,7 @@ from photo_organizer.commands.pack_cmd import pack_cmd
 from photo_organizer.commands.report_cmd import report_cmd
 from photo_organizer.commands.preset_cmd import preset_cmd
 from photo_organizer.commands.delivery_cmd import delivery_cmd
+from photo_organizer.commands.verify_cmd import verify_cmd
 
 
 @click.group()
@@ -23,7 +24,8 @@ def main():
       rename    - 依据客户名、场次、序号批量重命名
       select    - 读取星标或手动清单筛选精修图
       watermark - 统一加水印、生成缩略图、按横竖构图分类
-      pack      - 打包交付压缩包
+      pack      - 打包交付压缩包（自动生成校验）
+      verify    - 验证压缩包和照片完整性
       report    - 输出照片数量、缺失编号、重复文件和交付清单
       preset    - 管理预设配置，保存常用参数
     """
@@ -38,6 +40,7 @@ main.add_command(pack_cmd, name='pack')
 main.add_command(report_cmd, name='report')
 main.add_command(preset_cmd, name='preset')
 main.add_command(delivery_cmd, name='delivery')
+main.add_command(verify_cmd, name='verify')
 
 
 if __name__ == '__main__':

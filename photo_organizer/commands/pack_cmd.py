@@ -3,8 +3,30 @@ import zipfile
 import click
 from pathlib import Path
 
-from photo_organizer.core.file_utils import list_image_files, ensure_directory
+from photo_organizer.core.file_utils import list_image_files, ensure_directory, get_file_hash
 from photo_organizer.core.config import resolve_preset
+
+
+def write_checksum_file(file_list, output_dir, checksum_filename='checksums.md5'):
+    """为文件列表生成 MD5 校验文件
+
+    输出格式: <md5>  <相对路径或文件名>
+    """
+    output_dir = Path(output_dir)
+    ensure_directory(output_dir)
+    checksum_path = output_dir / checksum_filename
+
+    with open(checksum_path, 'w', encoding='utf-8') as f:
+        for filepath in sorted(file_list):
+            filepath = Path(filepath)
+            try:
+                file_hash = get_file_hash(filepath)
+                rel_path = filepath.relative_to(output_dir) if filepath.is_relative_to(output_dir) else filepath.name
+                f.write(f'{file_hash}  {rel_path}\n')
+            except Exception:
+                continue
+
+    return checksum_path
 
 
 def create_zip_from_dir(source_dir, output_file, subdirs=None, exclude_dirs=None, base_dir=None):
@@ -85,11 +107,16 @@ def create_zip_from_file_list(file_list, output_file, strip_prefix=None, base_di
               help='是否包含原图 (默认: 是)')
 @click.option('--base-dir', default=None, help='压缩包内基础目录名')
 @click.option('--preset', '-p', default=None, help='使用预设配置名')
+@click.option('--generate-checksums/--no-checksums', default=True,
+              help='是否生成 MD5 校验文件 (默认: 是)')
+@click.option('--checksum-photos/--no-checksum-photos', default=False,
+              help='是否同时为源照片生成校验 (默认: 否，仅校验 zip)')
 @click.option('--dry-run', is_flag=True,
               help='试运行，不实际创建压缩包')
 def pack_cmd(source_dir, output, name, format, include_thumbs, thumbs_dir,
               split_by_orientation, landscape_dir, portrait_dir, square_dir,
-              include_original, base_dir, preset, dry_run):
+              include_original, base_dir, preset, generate_checksums,
+              checksum_photos, dry_run):
     """打包交付压缩包"""
     resolved = resolve_preset(
         preset,
@@ -205,3 +232,15 @@ def pack_cmd(source_dir, output, name, format, include_thumbs, thumbs_dir,
         if not dry_run and pkg_path.exists():
             size_mb = pkg_path.stat().st_size / (1024 * 1024)
             click.echo(f'  - {pkg_name}: {count} 张, {size_mb:.2f} MB')
+
+    if not dry_run and generate_checksums:
+        zip_paths = [output / pkg_name for pkg_name, _ in created_packages if (output / pkg_name).exists()]
+        if zip_paths:
+            checksum_path = write_checksum_file(zip_paths, output, checksum_filename=f'{name}_checksums.md5')
+            click.echo(f'  已生成压缩包校验文件: {checksum_path}')
+
+        if checksum_photos:
+            photo_checksum_path = write_checksum_file(
+                image_files, output, checksum_filename=f'{name}_photos_checksums.md5'
+            )
+            click.echo(f'  已生成照片校验文件: {photo_checksum_path}')
