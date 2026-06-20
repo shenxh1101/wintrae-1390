@@ -14,7 +14,12 @@ def parse_template(template, **kwargs):
 
 
 def extract_sequence(filename):
-    match = re.search(r'(\d+)', filename)
+    """提取文件名末尾的数字序号，避免场次名中的数字干扰
+
+    例如: 客户A_场次1_0002 -> 2
+          client_session2_0123 -> 123
+    """
+    match = re.search(r'(\d+)\s*$', filename)
     if match:
         return int(match.group(1))
     return None

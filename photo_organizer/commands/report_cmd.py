@@ -6,18 +6,24 @@ from datetime import datetime
 from photo_organizer.core.exif_utils import get_capture_date, get_camera_model, get_image_size
 from photo_organizer.core.file_utils import list_image_files, find_duplicate_files, ensure_directory
 from photo_organizer.core.naming import extract_sequence
+from photo_organizer.core.config import apply_preset_to_options
 
 
 def find_missing_sequences(file_list, start_num=1):
-    """查找缺失的编号"""
+    """查找缺失的编号（按文件名末尾的交付序号）"""
     sequences = []
+    seq_width = 4
     for filepath in file_list:
         seq = extract_sequence(filepath.stem)
         if seq is not None:
             sequences.append(seq)
+            if filepath.stem:
+                match = re.search(r'(\d+)\s*$', filepath.stem)
+                if match:
+                    seq_width = max(seq_width, len(match.group(1)))
 
     if not sequences:
-        return []
+        return [], seq_width
 
     sequences = sorted(set(sequences))
     min_seq = min(sequences) if start_num is None else min(start_num, sequences[0])
@@ -28,10 +34,11 @@ def find_missing_sequences(file_list, start_num=1):
         if i not in sequences:
             missing.append(i)
 
-    return missing
+    return missing, seq_width
 
 
-def generate_report_text(stats, missing_seqs, duplicates, file_list, output_file=None):
+def generate_report_text(stats, missing_seqs, duplicates, file_list, output_file=None,
+                         skipped_files=None, seq_width=4):
     """生成报告文本"""
     lines = []
     lines.append('=' * 60)
@@ -59,7 +66,15 @@ def generate_report_text(stats, missing_seqs, duplicates, file_list, output_file
     if missing_seqs:
         lines.append('【缺失编号】')
         lines.append(f'  共缺失 {len(missing_seqs)} 个编号:')
-        lines.append(f'  {", ".join(str(s) for s in missing_seqs)}')
+        formatted = ', '.join(f'{s:0{seq_width}d}' for s in missing_seqs)
+        lines.append(f'  {formatted}')
+        lines.append('')
+
+    if skipped_files:
+        lines.append('【跳过的文件】')
+        lines.append(f'  共 {len(skipped_files)} 个文件被跳过:')
+        for filepath, reason in skipped_files:
+            lines.append(f'  - {filepath.name}: {reason}')
         lines.append('')
 
     if duplicates:
@@ -113,9 +128,21 @@ def generate_report_text(stats, missing_seqs, duplicates, file_list, output_file
               help='是否按日期统计 (默认: 否)')
 @click.option('--group-by-camera/--no-group-by-camera', default=False,
               help='是否按相机统计 (默认: 否)')
+@click.option('--preset', '-p', help='使用预设配置名')
+@click.option('--skipped-files', 'skipped_files_opt', multiple=True,
+              type=(click.Path(), str),
+              help='跳过的文件列表 (用于报告记录)，格式: --skipped-files FILEPATH REASON')
 def report_cmd(source_dir, output, start_num, check_duplicates, check_sequence,
-               delivery_list, recursive, report_format, group_by_date, group_by_camera):
+               delivery_list, recursive, report_format, group_by_date, group_by_camera,
+               preset, skipped_files_opt):
     """输出照片数量、缺失编号、重复文件和交付清单"""
+    if preset:
+        applied = apply_preset_to_options(preset,
+                                          output=output,
+                                          start_num=start_num)
+        output = applied.get('output', output)
+        start_num = applied.get('start_num', start_num)
+
     source_dir = Path(source_dir)
 
     click.echo(f'扫描目录: {source_dir}')
@@ -125,6 +152,11 @@ def report_cmd(source_dir, output, start_num, check_duplicates, check_sequence,
     if not image_files:
         click.echo('没有找到照片文件')
         return
+
+    skipped_files = []
+    if skipped_files_opt:
+        for fp, reason in skipped_files_opt:
+            skipped_files.append((Path(fp), reason))
 
     stats = {'total': len(image_files)}
 
@@ -155,11 +187,13 @@ def report_cmd(source_dir, output, start_num, check_duplicates, check_sequence,
         stats['by_camera'] = by_camera
 
     missing_seqs = []
+    seq_width = 4
     if check_sequence:
         click.echo('检查编号连续性...')
-        missing_seqs = find_missing_sequences(image_files, start_num=start_num)
+        missing_seqs, seq_width = find_missing_sequences(image_files, start_num=start_num)
         if missing_seqs:
-            click.echo(f'  发现 {len(missing_seqs)} 个缺失编号')
+            formatted = ', '.join(f'{s:0{seq_width}d}' for s in missing_seqs)
+            click.echo(f'  发现 {len(missing_seqs)} 个缺失编号: {formatted}')
         else:
             click.echo('  编号连续，无缺失')
 
@@ -175,7 +209,8 @@ def report_cmd(source_dir, output, start_num, check_duplicates, check_sequence,
     click.echo('生成报告...')
     if report_format == 'text':
         report_text = generate_report_text(
-            stats, missing_seqs, duplicates, image_files, output
+            stats, missing_seqs, duplicates, image_files, output,
+            skipped_files=skipped_files, seq_width=seq_width
         )
         if not output:
             click.echo('')

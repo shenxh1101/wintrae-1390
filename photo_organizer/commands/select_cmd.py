@@ -3,6 +3,7 @@ from pathlib import Path
 
 from photo_organizer.core.exif_utils import get_rating
 from photo_organizer.core.file_utils import list_image_files, copy_file, ensure_directory
+from photo_organizer.core.config import apply_preset_to_options
 
 
 def read_selection_list(list_file):
@@ -34,11 +35,20 @@ def read_selection_list(list_file):
               help='保留原图或移动文件 (默认: 保留)')
 @click.option('--recursive/--no-recursive', default=False,
               help='是否递归扫描子目录 (默认: 否)')
+@click.option('--preset', '-p', help='使用预设配置名')
 @click.option('--dry-run', is_flag=True,
               help='试运行，不实际复制文件')
 def select_cmd(source_dir, output, min_rating, list_file, mode,
-               keep_original, recursive, dry_run):
+               keep_original, recursive, preset, dry_run):
     """读取星标或手动清单筛选精修图"""
+    if preset:
+        applied = apply_preset_to_options(
+            preset,
+            output=output, min_rating=min_rating, mode=mode
+        )
+        output = applied.get('output', output)
+        min_rating = applied.get('min_rating', min_rating)
+        mode = applied.get('mode', mode)
     source_dir = Path(source_dir)
     output = Path(output)
 

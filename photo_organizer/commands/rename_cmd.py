@@ -4,6 +4,7 @@ from pathlib import Path
 from photo_organizer.core.exif_utils import get_capture_date
 from photo_organizer.core.file_utils import list_image_files, copy_file, ensure_directory
 from photo_organizer.core.naming import generate_filename, DEFAULT_TEMPLATE
+from photo_organizer.core.config import apply_preset_to_options
 
 
 @click.command()
@@ -22,11 +23,23 @@ from photo_organizer.core.naming import generate_filename, DEFAULT_TEMPLATE
               help='保留原图或移动文件 (默认: 保留)')
 @click.option('--recursive/--no-recursive', default=False,
               help='是否递归扫描子目录 (默认: 否)')
+@click.option('--preset', '-p', help='使用预设配置名')
 @click.option('--dry-run', is_flag=True,
               help='试运行，不实际重命名')
 def rename_cmd(source_dir, output, client, session, start_num, template,
-               sort_by, keep_original, recursive, dry_run):
+               sort_by, keep_original, recursive, preset, dry_run):
     """依据客户名、场次、序号批量重命名照片"""
+    if preset:
+        applied = apply_preset_to_options(
+            preset,
+            output=output, client=client, session=session,
+            start_num=start_num, template=template
+        )
+        output = applied.get('output', output)
+        client = applied.get('client', client)
+        session = applied.get('session', session)
+        start_num = applied.get('start_num', start_num)
+        template = applied.get('template', template)
     source_dir = Path(source_dir)
     output = Path(output)
 

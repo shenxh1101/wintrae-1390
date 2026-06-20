@@ -7,6 +7,8 @@ from photo_organizer.commands.select_cmd import select_cmd
 from photo_organizer.commands.watermark_cmd import watermark_cmd
 from photo_organizer.commands.pack_cmd import pack_cmd
 from photo_organizer.commands.report_cmd import report_cmd
+from photo_organizer.commands.preset_cmd import preset_cmd
+from photo_organizer.commands.delivery_cmd import delivery_cmd
 
 
 @click.group()
@@ -15,8 +17,15 @@ from photo_organizer.commands.report_cmd import report_cmd
 def main():
     """摄影师批量整理活动照片交付工具
 
-    提供 import、rename、select、watermark、pack、report 六个命令，
-    帮助摄影师高效整理和交付活动照片。
+    提供完整的活动照片交付流程：
+      delivery  - 一键完整流程（import→rename→select→watermark→pack→report）
+      import    - 按拍摄日期和相机编号导入照片
+      rename    - 依据客户名、场次、序号批量重命名
+      select    - 读取星标或手动清单筛选精修图
+      watermark - 统一加水印、生成缩略图、按横竖构图分类
+      pack      - 打包交付压缩包
+      report    - 输出照片数量、缺失编号、重复文件和交付清单
+      preset    - 管理预设配置，保存常用参数
     """
     pass
 
@@ -27,6 +36,8 @@ main.add_command(select_cmd, name='select')
 main.add_command(watermark_cmd, name='watermark')
 main.add_command(pack_cmd, name='pack')
 main.add_command(report_cmd, name='report')
+main.add_command(preset_cmd, name='preset')
+main.add_command(delivery_cmd, name='delivery')
 
 
 if __name__ == '__main__':

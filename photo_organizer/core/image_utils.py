@@ -2,6 +2,33 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 
+PROCESSABLE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.webp'}
+RAW_EXTENSIONS = {'.raw', '.cr2', '.cr3', '.nef', '.nrw', '.arw', '.srf', '.sr2',
+                  '.dng', '.raf', '.orf', '.rw2', '.pef', '.3fr', '.erf', '.kdc',
+                  '.dcr', '.mrw', '.x3f'}
+
+
+def is_processable_image(filepath):
+    """判断文件格式是否可以被 Pillow 处理（JPG/PNG 等）"""
+    ext = Path(filepath).suffix.lower()
+    return ext in PROCESSABLE_EXTENSIONS
+
+
+def is_raw_format(filepath):
+    """判断是否为 RAW 格式"""
+    ext = Path(filepath).suffix.lower()
+    return ext in RAW_EXTENSIONS
+
+
+def get_safe_output_path(input_path, output_dir):
+    """为不可处理格式确定输出路径（保持原扩展名，如为RAW则输出为JPG）"""
+    input_path = Path(input_path)
+    output_dir = Path(output_dir)
+    if is_raw_format(input_path):
+        return output_dir / f'{input_path.stem}.jpg'
+    return output_dir / input_path.name
+
+
 def add_watermark(image_path, output_path, text, position='bottom-right', opacity=128, font_size=36):
     img = Image.open(image_path).convert('RGBA')
     txt_layer = Image.new('RGBA', img.size, (255, 255, 255, 0))

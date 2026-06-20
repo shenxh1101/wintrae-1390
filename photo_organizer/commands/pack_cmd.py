@@ -4,24 +4,58 @@ import click
 from pathlib import Path
 
 from photo_organizer.core.file_utils import list_image_files, ensure_directory
+from photo_organizer.core.config import apply_preset_to_options
 
 
-def create_zip(source_dir, output_file, include_pattern=None, base_dir=None):
-    """创建 zip 压缩包"""
+def create_zip_from_dir(source_dir, output_file, subdirs=None, exclude_dirs=None, base_dir=None):
+    """创建 zip 压缩包，可指定包含子目录或排除目录"""
     source_dir = Path(source_dir)
     output_file = Path(output_file)
     ensure_directory(output_file.parent)
 
     with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zf:
         for root, dirs, files in os.walk(source_dir):
-            for file in files:
-                file_path = Path(root) / file
-                if include_pattern and file_path.suffix.lower() not in include_pattern:
+            root_path = Path(root)
+            rel_root = root_path.relative_to(source_dir)
+            rel_root_parts = rel_root.parts
+
+            if subdirs is not None:
+                if len(rel_root_parts) > 0 and rel_root_parts[0] not in subdirs:
+                    if rel_root.parts and not any(p in subdirs for p in rel_root.parts):
+                        continue
+
+            if exclude_dirs:
+                if rel_root_parts and rel_root_parts[0] in exclude_dirs:
                     continue
+
+            for file in files:
+                file_path = root_path / file
                 arcname = file_path.relative_to(source_dir)
                 if base_dir:
                     arcname = Path(base_dir) / arcname
                 zf.write(file_path, arcname)
+
+    return output_file
+
+
+def create_zip_from_file_list(file_list, output_file, strip_prefix=None, base_dir=None):
+    """根据文件列表创建 zip 压缩包"""
+    output_file = Path(output_file)
+    ensure_directory(output_file.parent)
+
+    with zipfile.ZipFile(output_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for file_path in file_list:
+            file_path = Path(file_path)
+            if strip_prefix:
+                try:
+                    arcname = file_path.relative_to(strip_prefix)
+                except ValueError:
+                    arcname = file_path.name
+            else:
+                arcname = file_path.name
+            if base_dir:
+                arcname = Path(base_dir) / arcname
+            zf.write(file_path, arcname)
 
     return output_file
 
@@ -41,15 +75,26 @@ def create_zip(source_dir, output_file, include_pattern=None, base_dir=None):
               help='是否按横竖构图分别打包 (默认: 否)')
 @click.option('--landscape-dir', default='landscape', help='横图文件夹名 (默认: landscape)')
 @click.option('--portrait-dir', default='portrait', help='竖图文件夹名 (默认: portrait)')
+@click.option('--square-dir', default='square', help='方图文件夹名 (默认: square)')
 @click.option('--include-original/--no-include-original', default=True,
               help='是否包含原图 (默认: 是)')
 @click.option('--base-dir', help='压缩包内基础目录名')
+@click.option('--preset', '-p', help='使用预设配置名')
 @click.option('--dry-run', is_flag=True,
               help='试运行，不实际创建压缩包')
 def pack_cmd(source_dir, output, name, format, include_thumbs, thumbs_dir,
-              split_by_orientation, landscape_dir, portrait_dir,
-              include_original, base_dir, dry_run):
+              split_by_orientation, landscape_dir, portrait_dir, square_dir,
+              include_original, base_dir, preset, dry_run):
     """打包交付压缩包"""
+    if preset:
+        applied = apply_preset_to_options(
+            preset,
+            output=output, name=name, base_dir=base_dir
+        )
+        output = applied.get('output', output)
+        name = applied.get('name', name)
+        base_dir = applied.get('base_dir', base_dir)
+
     source_dir = Path(source_dir)
     output = Path(output)
 
@@ -68,29 +113,63 @@ def pack_cmd(source_dir, output, name, format, include_thumbs, thumbs_dir,
     created_packages = []
 
     if split_by_orientation:
-        landscape_files = [f for f in image_files if landscape_dir in f.parts]
-        portrait_files = [f for f in image_files if portrait_dir in f.parts]
+        landscape_dir_path = source_dir / landscape_dir
+        portrait_dir_path = source_dir / portrait_dir
+        square_dir_path = source_dir / square_dir
 
-        if landscape_files:
-            zip_name = f'{name}_{landscape_dir}.zip'
-            zip_path = output / zip_name
-            if not dry_run:
-                create_zip(source_dir, zip_path, base_dir=base_dir)
-            created_packages.append((zip_name, len(landscape_files)))
-            click.echo(f'  {zip_name}: {len(landscape_files)} 张')
+        if landscape_dir_path.exists():
+            landscape_files = list_image_files(landscape_dir_path, recursive=True)
+            if landscape_files:
+                zip_name = f'{name}_{landscape_dir}.zip'
+                zip_path = output / zip_name
+                if not dry_run:
+                    create_zip_from_dir(
+                        source_dir, zip_path,
+                        subdirs=[landscape_dir],
+                        exclude_dirs=[thumbs_dir],
+                        base_dir=base_dir
+                    )
+                created_packages.append((zip_name, len(landscape_files)))
+                click.echo(f'  {zip_name}: {len(landscape_files)} 张横图')
 
-        if portrait_files:
-            zip_name = f'{name}_{portrait_dir}.zip'
-            zip_path = output / zip_name
-            if not dry_run:
-                create_zip(source_dir, zip_path, base_dir=base_dir)
-            created_packages.append((zip_name, len(portrait_files)))
-            click.echo(f'  {zip_name}: {len(portrait_files)} 张')
+        if portrait_dir_path.exists():
+            portrait_files = list_image_files(portrait_dir_path, recursive=True)
+            if portrait_files:
+                zip_name = f'{name}_{portrait_dir}.zip'
+                zip_path = output / zip_name
+                if not dry_run:
+                    create_zip_from_dir(
+                        source_dir, zip_path,
+                        subdirs=[portrait_dir],
+                        exclude_dirs=[thumbs_dir],
+                        base_dir=base_dir
+                    )
+                created_packages.append((zip_name, len(portrait_files)))
+                click.echo(f'  {zip_name}: {len(portrait_files)} 张竖图')
+
+        if square_dir_path.exists():
+            square_files = list_image_files(square_dir_path, recursive=True)
+            if square_files:
+                zip_name = f'{name}_{square_dir}.zip'
+                zip_path = output / zip_name
+                if not dry_run:
+                    create_zip_from_dir(
+                        source_dir, zip_path,
+                        subdirs=[square_dir],
+                        exclude_dirs=[thumbs_dir],
+                        base_dir=base_dir
+                    )
+                created_packages.append((zip_name, len(square_files)))
+                click.echo(f'  {zip_name}: {len(square_files)} 张方图')
     else:
         zip_name = f'{name}.zip'
         zip_path = output / zip_name
         if not dry_run:
-            create_zip(source_dir, zip_path, base_dir=base_dir)
+            create_zip_from_dir(
+                source_dir, zip_path,
+                exclude_dirs=[thumbs_dir] if not include_thumbs else None,
+                base_dir=base_dir
+            )
         created_packages.append((zip_name, len(image_files)))
         click.echo(f'  {zip_name}: {len(image_files)} 张')
 
@@ -102,7 +181,10 @@ def pack_cmd(source_dir, output, name, format, include_thumbs, thumbs_dir,
                 zip_name = f'{name}_{thumbs_dir}.zip'
                 zip_path = output / zip_name
                 if not dry_run:
-                    create_zip(thumbs_path, zip_path, base_dir=base_dir)
+                    create_zip_from_dir(
+                        thumbs_path, zip_path,
+                        base_dir=base_dir
+                    )
                 created_packages.append((zip_name, len(thumb_files)))
                 click.echo(f'  {zip_name}: {len(thumb_files)} 张 (缩略图)')
 
