@@ -5,34 +5,38 @@ from datetime import datetime
 
 from photo_organizer.core.exif_utils import get_capture_date, get_camera_model, get_camera_serial
 from photo_organizer.core.file_utils import list_image_files, copy_file, ensure_directory
-from photo_organizer.core.config import apply_preset_to_options
+from photo_organizer.core.config import resolve_preset
 
 
 @click.command()
 @click.argument('source_dir', type=click.Path(exists=True, file_okay=False, dir_okay=True))
-@click.option('--output', '-o', required=True, type=click.Path(file_okay=False, dir_okay=True),
-              help='输出目录')
-@click.option('--group-by', default='date,camera',
+@click.option('--output', '-o', default=None, help='输出目录')
+@click.option('--group-by', default=None,
               help='分组方式，可用值: date, camera, date,camera (默认: date,camera)')
-@click.option('--date-format', default='%Y-%m-%d',
+@click.option('--date-format', default=None,
               help='日期文件夹格式 (默认: %%Y-%%m-%%d)')
 @click.option('--keep-original/--move', default=True,
               help='保留原图或移动文件 (默认: 保留)')
 @click.option('--recursive/--no-recursive', default=True,
               help='是否递归扫描子目录 (默认: 是)')
-@click.option('--preset', '-p', help='使用预设配置名')
+@click.option('--preset', '-p', default=None, help='使用预设配置名')
 @click.option('--dry-run', is_flag=True,
               help='试运行，不实际复制文件')
 def import_cmd(source_dir, output, group_by, date_format, keep_original, recursive, preset, dry_run):
     """按拍摄日期和相机编号导入照片"""
-    if preset:
-        applied = apply_preset_to_options(
-            preset,
-            output=output, group_by=group_by, date_format=date_format
-        )
-        output = applied.get('output', output)
-        group_by = applied.get('group_by', group_by)
-        date_format = applied.get('date_format', date_format)
+    resolved = resolve_preset(
+        preset,
+        {'output': output, 'group_by': group_by, 'date_format': date_format},
+        {'output': None, 'group_by': 'date,camera', 'date_format': '%Y-%m-%d'}
+    )
+    output = resolved['output']
+    group_by = resolved['group_by']
+    date_format = resolved['date_format']
+
+    if not output:
+        click.echo('错误: 请指定输出目录 (--output 或在 preset 中配置)')
+        return
+
     source_dir = Path(source_dir)
     output = Path(output)
 

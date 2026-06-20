@@ -6,11 +6,10 @@ from datetime import datetime
 from photo_organizer.core.exif_utils import get_capture_date, get_camera_model, get_image_size
 from photo_organizer.core.file_utils import list_image_files, find_duplicate_files, ensure_directory
 from photo_organizer.core.naming import extract_sequence
-from photo_organizer.core.config import apply_preset_to_options
+from photo_organizer.core.config import resolve_preset
 
 
 def find_missing_sequences(file_list, start_num=1):
-    """查找缺失的编号（按文件名末尾的交付序号）"""
     sequences = []
     seq_width = 4
     for filepath in file_list:
@@ -39,7 +38,6 @@ def find_missing_sequences(file_list, start_num=1):
 
 def generate_report_text(stats, missing_seqs, duplicates, file_list, output_file=None,
                          skipped_files=None, seq_width=4):
-    """生成报告文本"""
     lines = []
     lines.append('=' * 60)
     lines.append('照片整理报告')
@@ -110,8 +108,7 @@ def generate_report_text(stats, missing_seqs, duplicates, file_list, output_file
 
 @click.command()
 @click.argument('source_dir', type=click.Path(exists=True, file_okay=False, dir_okay=True))
-@click.option('--output', '-o', type=click.Path(file_okay=True, dir_okay=False),
-              help='报告输出文件路径')
+@click.option('--output', '-o', default=None, help='报告输出文件路径')
 @click.option('--start-num', default=1, type=int, help='起始序号 (默认: 1)')
 @click.option('--check-duplicates/--no-check-duplicates', default=True,
               help='是否检测重复文件 (默认: 是)')
@@ -128,7 +125,7 @@ def generate_report_text(stats, missing_seqs, duplicates, file_list, output_file
               help='是否按日期统计 (默认: 否)')
 @click.option('--group-by-camera/--no-group-by-camera', default=False,
               help='是否按相机统计 (默认: 否)')
-@click.option('--preset', '-p', help='使用预设配置名')
+@click.option('--preset', '-p', default=None, help='使用预设配置名')
 @click.option('--skipped-files', 'skipped_files_opt', multiple=True,
               type=(click.Path(), str),
               help='跳过的文件列表 (用于报告记录)，格式: --skipped-files FILEPATH REASON')
@@ -136,12 +133,13 @@ def report_cmd(source_dir, output, start_num, check_duplicates, check_sequence,
                delivery_list, recursive, report_format, group_by_date, group_by_camera,
                preset, skipped_files_opt):
     """输出照片数量、缺失编号、重复文件和交付清单"""
-    if preset:
-        applied = apply_preset_to_options(preset,
-                                          output=output,
-                                          start_num=start_num)
-        output = applied.get('output', output)
-        start_num = applied.get('start_num', start_num)
+    resolved = resolve_preset(
+        preset,
+        {'output': output, 'start_num': start_num},
+        {'output': None, 'start_num': 1}
+    )
+    output = resolved['output']
+    start_num = resolved['start_num']
 
     source_dir = Path(source_dir)
 

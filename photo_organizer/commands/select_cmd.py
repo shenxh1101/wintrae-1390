@@ -3,11 +3,10 @@ from pathlib import Path
 
 from photo_organizer.core.exif_utils import get_rating
 from photo_organizer.core.file_utils import list_image_files, copy_file, ensure_directory
-from photo_organizer.core.config import apply_preset_to_options
+from photo_organizer.core.config import resolve_preset
 
 
 def read_selection_list(list_file):
-    """从清单文件读取选中的文件名列表"""
     selected = set()
     list_file = Path(list_file)
     if not list_file.exists():
@@ -22,33 +21,37 @@ def read_selection_list(list_file):
 
 @click.command()
 @click.argument('source_dir', type=click.Path(exists=True, file_okay=False, dir_okay=True))
-@click.option('--output', '-o', required=True, type=click.Path(file_okay=False, dir_okay=True),
-              help='输出目录')
+@click.option('--output', '-o', default=None, help='输出目录')
 @click.option('--min-rating', default=3, type=int,
               help='最低星标数 (默认: 3)，设为0则不按星标筛选')
 @click.option('--list-file', '-l', type=click.Path(exists=True, file_okay=True, dir_okay=False),
               help='手动筛选清单文件，每行一个文件名')
-@click.option('--mode', default='union',
+@click.option('--mode', default=None,
               type=click.Choice(['union', 'intersection', 'rating-only', 'list-only']),
-              help='筛选模式: union(并集), intersection(交集), rating-only(仅星标), list-only(仅清单) (默认: union)')
+              help='筛选模式 (默认: union)')
 @click.option('--keep-original/--move', default=True,
               help='保留原图或移动文件 (默认: 保留)')
 @click.option('--recursive/--no-recursive', default=False,
               help='是否递归扫描子目录 (默认: 否)')
-@click.option('--preset', '-p', help='使用预设配置名')
+@click.option('--preset', '-p', default=None, help='使用预设配置名')
 @click.option('--dry-run', is_flag=True,
               help='试运行，不实际复制文件')
 def select_cmd(source_dir, output, min_rating, list_file, mode,
                keep_original, recursive, preset, dry_run):
     """读取星标或手动清单筛选精修图"""
-    if preset:
-        applied = apply_preset_to_options(
-            preset,
-            output=output, min_rating=min_rating, mode=mode
-        )
-        output = applied.get('output', output)
-        min_rating = applied.get('min_rating', min_rating)
-        mode = applied.get('mode', mode)
+    resolved = resolve_preset(
+        preset,
+        {'output': output, 'min_rating': min_rating, 'mode': mode},
+        {'output': None, 'min_rating': 3, 'mode': 'union'}
+    )
+    output = resolved['output']
+    min_rating = resolved['min_rating']
+    mode = resolved['mode']
+
+    if not output:
+        click.echo('错误: 请指定输出目录 (--output 或在 preset 中配置)')
+        return
+
     source_dir = Path(source_dir)
     output = Path(output)
 

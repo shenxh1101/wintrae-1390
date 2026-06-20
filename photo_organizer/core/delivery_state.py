@@ -12,7 +12,6 @@ def get_state_path(output_dir):
 
 
 def load_state(output_dir):
-    """加载流程状态"""
     state_path = get_state_path(output_dir)
     if state_path.exists():
         with open(state_path, 'r', encoding='utf-8') as f:
@@ -27,7 +26,6 @@ def load_state(output_dir):
 
 
 def save_state(output_dir, state):
-    """保存流程状态"""
     state_path = get_state_path(output_dir)
     state_path.parent.mkdir(parents=True, exist_ok=True)
     with open(state_path, 'w', encoding='utf-8') as f:
@@ -35,7 +33,6 @@ def save_state(output_dir, state):
 
 
 def mark_step_started(state, step_name):
-    """标记步骤开始"""
     state['steps'][step_name] = {
         'status': 'running',
         'started_at': datetime.now().isoformat(),
@@ -46,7 +43,6 @@ def mark_step_started(state, step_name):
 
 
 def mark_step_completed(state, step_name, extra_info=None):
-    """标记步骤完成"""
     if step_name in state['steps']:
         state['steps'][step_name]['status'] = 'completed'
         state['steps'][step_name]['completed_at'] = datetime.now().isoformat()
@@ -57,7 +53,6 @@ def mark_step_completed(state, step_name, extra_info=None):
 
 
 def mark_step_failed(state, step_name, error_msg):
-    """标记步骤失败"""
     if step_name in state['steps']:
         state['steps'][step_name]['status'] = 'failed'
         state['steps'][step_name]['error'] = str(error_msg)
@@ -67,33 +62,34 @@ def mark_step_failed(state, step_name, error_msg):
 
 
 def is_step_completed(state, step_name):
-    """检查步骤是否已完成"""
     return step_name in state['steps'] and state['steps'][step_name].get('status') == 'completed'
 
 
 def get_completed_steps(state):
-    """获取所有已完成的步骤"""
     return [name for name in DELIVERY_STEPS if is_step_completed(state, name)]
 
 
 def get_pending_steps(state, selected_steps=None, start_from=None):
-    """获取待执行步骤列表"""
+    """获取待执行步骤列表
+
+    - 无 start_from 时: 只返回尚未完成的步骤
+    - 有 start_from 时: 从该步骤开始返回（含已完成步骤，用于强制重跑）
+    """
     steps = selected_steps if selected_steps else DELIVERY_STEPS
 
-    start_idx = 0
     if start_from and start_from in steps:
-        start_idx = steps.index(start_from)
-    else:
-        for i, step in enumerate(steps):
-            if not is_step_completed(state, step):
-                start_idx = i
-                break
+        return steps[steps.index(start_from):]
 
-    return steps[start_idx:]
+    return [s for s in steps if not is_step_completed(state, s)]
+
+
+def is_delivery_complete(state, selected_steps=None):
+    """检查交付流程是否全部完成"""
+    steps = selected_steps if selected_steps else DELIVERY_STEPS
+    return all(is_step_completed(state, s) for s in steps)
 
 
 def clear_state(output_dir):
-    """清除流程状态"""
     state_path = get_state_path(output_dir)
     if state_path.exists():
         state_path.unlink()

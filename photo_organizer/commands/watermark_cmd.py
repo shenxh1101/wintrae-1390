@@ -7,14 +7,13 @@ from photo_organizer.core.image_utils import (
     add_watermark, create_thumbnail, get_orientation,
     is_processable_image, is_raw_format
 )
-from photo_organizer.core.config import apply_preset_to_options
+from photo_organizer.core.config import resolve_preset
 
 
 @click.command()
 @click.argument('source_dir', type=click.Path(exists=True, file_okay=False, dir_okay=True))
-@click.option('--output', '-o', required=True, type=click.Path(file_okay=False, dir_okay=True),
-              help='输出目录')
-@click.option('--text', '-t', required=True, help='水印文字')
+@click.option('--output', '-o', default=None, help='输出目录')
+@click.option('--text', '-t', default=None, help='水印文字')
 @click.option('--position', default='bottom-right',
               type=click.Choice(['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center']),
               help='水印位置 (默认: bottom-right)')
@@ -39,7 +38,7 @@ from photo_organizer.core.config import apply_preset_to_options
               help='是否递归扫描子目录 (默认: 否)')
 @click.option('--quality', default=85, type=click.IntRange(1, 100),
               help='JPEG 输出质量 (默认: 85)')
-@click.option('--preset', '-p', help='使用预设配置名')
+@click.option('--preset', '-p', default=None, help='使用预设配置名')
 @click.option('--report-skipped', 'report_skipped_path',
               type=click.Path(file_okay=True, dir_okay=False),
               help='将跳过文件列表写入指定路径 (供后续 report 使用)')
@@ -56,17 +55,25 @@ def watermark_cmd(source_dir, output, text, position, opacity, font_size,
     RAW 原片会跳过水印处理，可选择复制到独立目录；
     其他不可处理格式会记录到跳过列表。
     """
-    if preset:
-        applied = apply_preset_to_options(
-            preset,
-            output=output, text=text, position=position,
-            opacity=opacity, font_size=font_size
-        )
-        output = applied.get('output', output)
-        text = applied.get('text', text)
-        position = applied.get('position', position)
-        opacity = applied.get('opacity', opacity)
-        font_size = applied.get('font_size', font_size)
+    resolved = resolve_preset(
+        preset,
+        {'output': output, 'text': text, 'position': position,
+         'opacity': opacity, 'font_size': font_size},
+        {'output': None, 'text': None, 'position': 'bottom-right',
+         'opacity': 128, 'font_size': 36}
+    )
+    output = resolved['output']
+    text = resolved['text']
+    position = resolved['position']
+    opacity = resolved['opacity']
+    font_size = resolved['font_size']
+
+    if not output:
+        click.echo('错误: 请指定输出目录 (--output 或在 preset 中配置)')
+        return
+    if not text:
+        click.echo('错误: 请指定水印文字 (--text 或在 preset 中配置)')
+        return
 
     source_dir = Path(source_dir)
     output = Path(output)

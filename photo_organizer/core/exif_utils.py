@@ -4,7 +4,14 @@ from datetime import datetime
 from pathlib import Path
 
 
-SUPPORTED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.tif', '.tiff', '.raw', '.cr2', '.nef', '.arw', '.dng'}
+SUPPORTED_EXTENSIONS = {
+    '.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tif', '.tiff', '.webp',
+    '.raw', '.cr2', '.cr3', '.nef', '.nrw',
+    '.arw', '.srf', '.sr2',
+    '.dng', '.raf', '.orf', '.rw2',
+    '.pef', '.3fr', '.erf', '.kdc',
+    '.dcr', '.mrw', '.x3f',
+}
 
 
 def is_image_file(filepath):

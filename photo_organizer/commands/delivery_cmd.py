@@ -1,19 +1,15 @@
 import os
 import sys
 import click
-import json
 from pathlib import Path
 from datetime import datetime
 
 from photo_organizer.core.file_utils import ensure_directory, list_image_files
-from photo_organizer.core.config import (
-    apply_preset_to_options, get_preset,
-    load_project_config
-)
+from photo_organizer.core.config import resolve_preset
 from photo_organizer.core.delivery_state import (
     DELIVERY_STEPS, load_state, save_state,
     mark_step_started, mark_step_completed, mark_step_failed,
-    is_step_completed, get_pending_steps, clear_state
+    is_step_completed, get_pending_steps, is_delivery_complete, clear_state
 )
 from photo_organizer.core.naming import DEFAULT_TEMPLATE
 
@@ -25,33 +21,19 @@ from photo_organizer.commands.pack_cmd import pack_cmd
 from photo_organizer.commands.report_cmd import report_cmd
 
 
-def _resolve_config_value(cli_value, preset_cfg, project_cfg, default=None):
-    """按优先级解析配置值：CLI > preset > project config > default"""
-    if cli_value is not None and cli_value != default:
-        return cli_value
-    if preset_cfg and cli_value in preset_cfg:
-        return preset_cfg[cli_value] if False else preset_cfg
-    if preset_cfg:
-        return preset_cfg
-    if project_cfg:
-        return project_cfg
-    return default
-
-
 @click.command()
 @click.argument('source_dir', type=click.Path(exists=True, file_okay=False, dir_okay=True))
-@click.option('--output', '-o', required=True, type=click.Path(file_okay=False, dir_okay=True),
-              help='工作/输出根目录')
-@click.option('--preset', '-p', help='使用预设配置名')
+@click.option('--output', '-o', default=None, help='工作/输出根目录')
+@click.option('--preset', '-p', default=None, help='使用预设配置名')
 @click.option('--use-project-config/--no-project-config', default=True,
               help='是否读取项目目录的 photo_project.json (默认: 是)')
-@click.option('--client', '-c', help='客户名称')
-@click.option('--session', '-s', help='场次编号')
-@click.option('--template', help=f'命名模板 (默认: {DEFAULT_TEMPLATE})')
-@click.option('--watermark-text', '-t', 'watermark_text', help='水印文字')
+@click.option('--client', '-c', default=None, help='客户名称')
+@click.option('--session', '-s', default=None, help='场次编号')
+@click.option('--template', default=None, help=f'命名模板 (默认: {DEFAULT_TEMPLATE})')
+@click.option('--watermark-text', '-t', 'watermark_text', default=None, help='水印文字')
 @click.option('--steps', help='要执行的步骤，逗号分隔: import,rename,select,watermark,pack,report')
 @click.option('--from-step', 'from_step', type=click.Choice(DELIVERY_STEPS),
-              help='从指定步骤开始执行（断点续跑）')
+              help='从指定步骤开始执行（断点续跑/强制重跑）')
 @click.option('--only-step', 'only_step', type=click.Choice(DELIVERY_STEPS),
               help='只执行单个步骤')
 @click.option('--reset', is_flag=True,
@@ -64,12 +46,36 @@ def delivery_cmd(source_dir, output, preset, use_project_config,
                  client, session, template, watermark_text,
                  steps, from_step, only_step, reset,
                  list_file, dry_run, yes):
-    """完整交付流程：import → rename → select → watermark → pack → report
+    """完整交付流程: import -> rename -> select -> watermark -> pack -> report
 
-    支持断点续跑：再次执行同一命令会自动从上次失败或未完成的步骤继续。
-    使用 --reset 清除状态从头开始。
+    支持断点续跑: 再次执行同一命令会自动从上次失败处继续。
+    已全部完成时再执行会直接提示，不会重复跑。如需重跑特定步骤，
+    请使用 --from-step 或 --only-step 明确指定。
     """
     source_dir = Path(source_dir)
+
+    resolved = resolve_preset(
+        preset,
+        {'output': output, 'client': client, 'session': session,
+         'template': template, 'text': watermark_text,
+         'name': None, 'base_dir': None, 'group_by': None},
+        {'output': None, 'client': None, 'session': '1',
+         'template': DEFAULT_TEMPLATE, 'text': None,
+         'name': 'delivery', 'base_dir': None, 'group_by': 'date,camera'}
+    )
+    output = resolved['output']
+    client = resolved['client']
+    session = resolved['session']
+    template = resolved['template']
+    watermark_text = resolved['text']
+    pack_name = resolved['name']
+    base_dir = resolved['base_dir']
+    group_by = resolved['group_by']
+
+    if not output:
+        click.echo('错误: 请指定工作目录 (--output 或在 preset 中配置)')
+        return
+
     output = Path(output)
 
     if reset:
@@ -79,27 +85,6 @@ def delivery_cmd(source_dir, output, preset, use_project_config,
     state = load_state(output)
     if not state.get('started_at'):
         state['started_at'] = datetime.now().isoformat()
-
-    preset_cfg = get_preset(preset) if preset else {}
-    project_cfg = load_project_config(source_dir) if use_project_config else {}
-    project_cfg_output = load_project_config(output) if use_project_config else {}
-    if project_cfg_output:
-        project_cfg.update(project_cfg_output)
-
-    def _get(key, default=None):
-        if preset_cfg and key in preset_cfg:
-            return preset_cfg[key]
-        if project_cfg and key in project_cfg:
-            return project_cfg[key]
-        return default
-
-    client = client or _get('client')
-    session = session or _get('session', '1')
-    template = template or _get('template', DEFAULT_TEMPLATE)
-    watermark_text = watermark_text or _get('text')
-    pack_name = _get('name', 'delivery')
-    base_dir = _get('base_dir')
-    group_by = _get('group_by', 'date,camera')
 
     if not client:
         if not yes:
@@ -123,14 +108,20 @@ def delivery_cmd(source_dir, output, preset, use_project_config,
         selected_steps.remove('select')
         click.echo('提示: 未提供 --list-file，跳过 select 步骤')
 
+    if not from_step and not only_step and is_delivery_complete(state, selected_steps):
+        click.echo('交付流程已全部完成，无需重复执行。')
+        click.echo('如需重跑某一步，请使用 --from-step <步骤名> 或 --only-step <步骤名>。')
+        click.echo('如需从头开始，请使用 --reset。')
+        return
+
     pending = get_pending_steps(state, selected_steps, from_step)
 
     if not pending:
-        click.echo('所有步骤均已完成！')
-        if not yes and click.confirm('是否清除流程状态文件?', default=True):
-            clear_state(output)
-            click.echo('已清除状态文件')
-        return
+        if from_step or only_step:
+            pass
+        else:
+            click.echo('没有待执行的步骤。')
+            return
 
     ensure_directory(output)
 
@@ -152,7 +143,7 @@ def delivery_cmd(source_dir, output, preset, use_project_config,
     click.echo(f'水印文字: "{watermark_text}"')
     if preset:
         click.echo(f'预设: {preset}')
-    click.echo(f'待执行步骤: {" → ".join(pending)}')
+    click.echo(f'待执行步骤: {" -> ".join(pending)}')
     click.echo('=' * 60)
 
     if not yes and not click.confirm('开始执行?', default=True):
@@ -202,7 +193,7 @@ def delivery_cmd(source_dir, output, preset, use_project_config,
                     result = runner.invoke(
                         rename_cmd,
                         [str(src), '-o', str(dst), '-c', client, '-s', str(session),
-                         '--template', template]
+                         '--template', template, '--recursive']
                     )
                     if result.exit_code != 0:
                         raise RuntimeError(result.output)
@@ -221,7 +212,7 @@ def delivery_cmd(source_dir, output, preset, use_project_config,
                     result = runner.invoke(
                         select_cmd,
                         [str(src), '-o', str(dst), '-l', str(list_file),
-                         '--mode', 'list-only']
+                         '--mode', 'list-only', '--recursive']
                     )
                     if result.exit_code != 0:
                         raise RuntimeError(result.output)
@@ -311,7 +302,7 @@ def delivery_cmd(source_dir, output, preset, use_project_config,
             state = mark_step_failed(state, step, str(e))
             save_state(output, state)
             click.echo(f'  [FAIL] 步骤失败: {e}')
-            click.echo(f'\n流程中断！修复问题后再次执行相同命令即可从该步骤继续。')
+            click.echo(f'\n流程中断! 修复问题后再次执行相同命令即可从该步骤继续。')
             click.echo(f'或使用 --from-step {step} 从该步骤重试，--reset 从头开始。')
             sys.exit(1)
 
@@ -319,7 +310,7 @@ def delivery_cmd(source_dir, output, preset, use_project_config,
     save_state(output, state)
 
     click.echo('\n' + '=' * 60)
-    click.echo('全部完成！')
+    click.echo('全部完成!')
     click.echo('=' * 60)
     click.echo(f'工作目录: {output}')
     if subdirs['pack'].exists():

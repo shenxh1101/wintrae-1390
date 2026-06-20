@@ -4,11 +4,17 @@ import click
 from pathlib import Path
 
 from photo_organizer.core.file_utils import list_image_files, ensure_directory
-from photo_organizer.core.config import apply_preset_to_options
+from photo_organizer.core.config import resolve_preset
 
 
 def create_zip_from_dir(source_dir, output_file, subdirs=None, exclude_dirs=None, base_dir=None):
-    """创建 zip 压缩包，可指定包含子目录或排除目录"""
+    """创建 zip 压缩包
+
+    Args:
+        subdirs: 指定时只打包这些子目录的内容，根目录文件不会被打包
+        exclude_dirs: 排除的子目录名列表
+        base_dir: 压缩包内基础目录名
+    """
     source_dir = Path(source_dir)
     output_file = Path(output_file)
     ensure_directory(output_file.parent)
@@ -20,9 +26,10 @@ def create_zip_from_dir(source_dir, output_file, subdirs=None, exclude_dirs=None
             rel_root_parts = rel_root.parts
 
             if subdirs is not None:
-                if len(rel_root_parts) > 0 and rel_root_parts[0] not in subdirs:
-                    if rel_root.parts and not any(p in subdirs for p in rel_root.parts):
-                        continue
+                if not rel_root_parts:
+                    continue
+                if rel_root_parts[0] not in subdirs:
+                    continue
 
             if exclude_dirs:
                 if rel_root_parts and rel_root_parts[0] in exclude_dirs:
@@ -39,7 +46,6 @@ def create_zip_from_dir(source_dir, output_file, subdirs=None, exclude_dirs=None
 
 
 def create_zip_from_file_list(file_list, output_file, strip_prefix=None, base_dir=None):
-    """根据文件列表创建 zip 压缩包"""
     output_file = Path(output_file)
     ensure_directory(output_file.parent)
 
@@ -62,9 +68,8 @@ def create_zip_from_file_list(file_list, output_file, strip_prefix=None, base_di
 
 @click.command()
 @click.argument('source_dir', type=click.Path(exists=True, file_okay=False, dir_okay=True))
-@click.option('--output', '-o', required=True, type=click.Path(file_okay=False, dir_okay=True),
-              help='输出目录')
-@click.option('--name', '-n', default='delivery', help='压缩包名称 (默认: delivery)')
+@click.option('--output', '-o', default=None, help='输出目录')
+@click.option('--name', '-n', default=None, help='压缩包名称 (默认: delivery)')
 @click.option('--format', '-f', default='zip',
               type=click.Choice(['zip']),
               help='压缩格式 (默认: zip)')
@@ -78,22 +83,26 @@ def create_zip_from_file_list(file_list, output_file, strip_prefix=None, base_di
 @click.option('--square-dir', default='square', help='方图文件夹名 (默认: square)')
 @click.option('--include-original/--no-include-original', default=True,
               help='是否包含原图 (默认: 是)')
-@click.option('--base-dir', help='压缩包内基础目录名')
-@click.option('--preset', '-p', help='使用预设配置名')
+@click.option('--base-dir', default=None, help='压缩包内基础目录名')
+@click.option('--preset', '-p', default=None, help='使用预设配置名')
 @click.option('--dry-run', is_flag=True,
               help='试运行，不实际创建压缩包')
 def pack_cmd(source_dir, output, name, format, include_thumbs, thumbs_dir,
               split_by_orientation, landscape_dir, portrait_dir, square_dir,
               include_original, base_dir, preset, dry_run):
     """打包交付压缩包"""
-    if preset:
-        applied = apply_preset_to_options(
-            preset,
-            output=output, name=name, base_dir=base_dir
-        )
-        output = applied.get('output', output)
-        name = applied.get('name', name)
-        base_dir = applied.get('base_dir', base_dir)
+    resolved = resolve_preset(
+        preset,
+        {'output': output, 'name': name, 'base_dir': base_dir},
+        {'output': None, 'name': 'delivery', 'base_dir': None}
+    )
+    output = resolved['output']
+    name = resolved['name']
+    base_dir = resolved['base_dir']
+
+    if not output:
+        click.echo('错误: 请指定输出目录 (--output 或在 preset 中配置)')
+        return
 
     source_dir = Path(source_dir)
     output = Path(output)

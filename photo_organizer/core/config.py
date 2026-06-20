@@ -18,7 +18,6 @@ def ensure_config_dir():
 
 
 def load_presets():
-    """加载所有 preset"""
     ensure_config_dir()
     if DEFAULT_PRESETS_FILE.exists():
         with open(DEFAULT_PRESETS_FILE, 'r', encoding='utf-8') as f:
@@ -27,27 +26,23 @@ def load_presets():
 
 
 def save_presets(presets):
-    """保存所有 preset"""
     ensure_config_dir()
     with open(DEFAULT_PRESETS_FILE, 'w', encoding='utf-8') as f:
         json.dump(presets, f, ensure_ascii=False, indent=2)
 
 
 def get_preset(name):
-    """获取单个 preset"""
     presets = load_presets()
     return presets.get(name)
 
 
 def save_preset(name, config):
-    """保存单个 preset"""
     presets = load_presets()
     presets[name] = config
     save_presets(presets)
 
 
 def delete_preset(name):
-    """删除 preset"""
     presets = load_presets()
     if name in presets:
         del presets[name]
@@ -57,12 +52,10 @@ def delete_preset(name):
 
 
 def list_presets():
-    """列出所有 preset 名称"""
     return list(load_presets().keys())
 
 
 def load_project_config(project_dir=None):
-    """加载项目级配置文件"""
     project_dir = Path(project_dir) if project_dir else Path.cwd()
     config_path = project_dir / DEFAULT_PROJECT_CONFIG
     if config_path.exists():
@@ -72,7 +65,6 @@ def load_project_config(project_dir=None):
 
 
 def save_project_config(config, project_dir=None):
-    """保存项目级配置文件"""
     project_dir = Path(project_dir) if project_dir else Path.cwd()
     config_path = project_dir / DEFAULT_PROJECT_CONFIG
     with open(config_path, 'w', encoding='utf-8') as f:
@@ -80,14 +72,29 @@ def save_project_config(config, project_dir=None):
     return config_path
 
 
-def apply_preset_to_options(preset_name, **kwargs):
-    """将 preset 中的配置应用到命令选项，命令行传入的参数优先级更高"""
-    preset = get_preset(preset_name)
-    if not preset:
-        return kwargs
+def resolve_preset(preset_name, cli_kwargs, internal_defaults=None):
+    """按优先级解析配置: CLI 显式传值 > preset > 内部默认值
 
-    result = dict(kwargs)
-    for key, value in preset.items():
-        if key not in result or result[key] is None:
-            result[key] = value
+    cli_kwargs 中值为 None 的参数表示用户未显式传入，
+    会被 preset 中对应的值覆盖；preset 中也没有的再用 internal_defaults。
+
+    Args:
+        preset_name: preset 名称，为 None/空则跳过
+        cli_kwargs: 命令行传入的参数字典，未设置的应为 None
+        internal_defaults: 内部默认值字典
+
+    Returns:
+        解析后的参数字典
+    """
+    result = dict(cli_kwargs)
+    preset_cfg = get_preset(preset_name) if preset_name else {}
+    defaults = internal_defaults or {}
+
+    for key, value in result.items():
+        if value is None:
+            if key in preset_cfg:
+                result[key] = preset_cfg[key]
+            elif key in defaults:
+                result[key] = defaults[key]
+
     return result

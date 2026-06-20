@@ -4,17 +4,16 @@ from pathlib import Path
 from photo_organizer.core.exif_utils import get_capture_date
 from photo_organizer.core.file_utils import list_image_files, copy_file, ensure_directory
 from photo_organizer.core.naming import generate_filename, DEFAULT_TEMPLATE
-from photo_organizer.core.config import apply_preset_to_options
+from photo_organizer.core.config import resolve_preset
 
 
 @click.command()
 @click.argument('source_dir', type=click.Path(exists=True, file_okay=False, dir_okay=True))
-@click.option('--output', '-o', required=True, type=click.Path(file_okay=False, dir_okay=True),
-              help='输出目录')
-@click.option('--client', '-c', required=True, help='客户名称')
-@click.option('--session', '-s', default='1', help='场次编号 (默认: 1)')
+@click.option('--output', '-o', default=None, help='输出目录')
+@click.option('--client', '-c', default=None, help='客户名称')
+@click.option('--session', '-s', default=None, help='场次编号 (默认: 1)')
 @click.option('--start-num', default=1, type=int, help='起始序号 (默认: 1)')
-@click.option('--template', default=DEFAULT_TEMPLATE,
+@click.option('--template', default=None,
               help=f'命名模板 (默认: {DEFAULT_TEMPLATE})')
 @click.option('--sort-by', default='date',
               type=click.Choice(['date', 'name', 'size']),
@@ -23,23 +22,32 @@ from photo_organizer.core.config import apply_preset_to_options
               help='保留原图或移动文件 (默认: 保留)')
 @click.option('--recursive/--no-recursive', default=False,
               help='是否递归扫描子目录 (默认: 否)')
-@click.option('--preset', '-p', help='使用预设配置名')
+@click.option('--preset', '-p', default=None, help='使用预设配置名')
 @click.option('--dry-run', is_flag=True,
               help='试运行，不实际重命名')
 def rename_cmd(source_dir, output, client, session, start_num, template,
                sort_by, keep_original, recursive, preset, dry_run):
     """依据客户名、场次、序号批量重命名照片"""
-    if preset:
-        applied = apply_preset_to_options(
-            preset,
-            output=output, client=client, session=session,
-            start_num=start_num, template=template
-        )
-        output = applied.get('output', output)
-        client = applied.get('client', client)
-        session = applied.get('session', session)
-        start_num = applied.get('start_num', start_num)
-        template = applied.get('template', template)
+    resolved = resolve_preset(
+        preset,
+        {'output': output, 'client': client, 'session': session,
+         'start_num': start_num, 'template': template},
+        {'output': None, 'client': None, 'session': '1',
+         'start_num': 1, 'template': DEFAULT_TEMPLATE}
+    )
+    output = resolved['output']
+    client = resolved['client']
+    session = resolved['session']
+    start_num = resolved['start_num']
+    template = resolved['template']
+
+    if not output:
+        click.echo('错误: 请指定输出目录 (--output 或在 preset 中配置)')
+        return
+    if not client:
+        click.echo('错误: 请指定客户名称 (--client 或在 preset 中配置)')
+        return
+
     source_dir = Path(source_dir)
     output = Path(output)
 
